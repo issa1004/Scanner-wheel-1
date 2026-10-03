@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import asyncio
 import nest_asyncio
-from ib_insync import IB, Stock, ScannerSubscription, Util
+from ib_insync import IB, Stock, ScannerSubscription, util
 
 # Permet à ib_insync de tourner dans la boucle d'événements de Streamlit
 nest_asyncio.apply()
@@ -117,7 +117,7 @@ def analyze_ticker_ibkr(ib, symbol):
         if not bars or len(bars) < 20:
             return None
             
-        df_hist = Util.df(bars)
+        df_hist = util.df(bars)
         ema_fast = df_hist['close'].ewm(span=20, adjust=False).mean().iloc[-1]
         ema_slow = df_hist['close'].ewm(span=50, adjust=False).mean().iloc[-1]
         is_bullish = bool(ema_fast > ema_slow)
