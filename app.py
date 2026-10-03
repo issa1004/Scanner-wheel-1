@@ -45,21 +45,13 @@ st.markdown("""
         display: inline-block;
         border: 1px solid #334155;
     }
-    .section-title {
-        color: #38bdf8;
-        font-size: 12px;
-        font-weight: bold;
-        margin-top: 8px;
-        margin-bottom: 4px;
-        text-transform: uppercase;
-    }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🌍 Global Market Wheel Strategy Scanner")
 
 # ==============================================================================
-# 1. BASE DE DONNÉES DES MARCHÉS MONDIAUX (NASDAQ, S&P 500, NYSE, TSX, EUROPE, SINGAPOUR)
+# 1. BASE DE DONNÉES DES MARCHÉS MONDIAUX
 # ==============================================================================
 @st.cache_data(ttl=86400)
 def load_market_universe(selected_markets):
@@ -83,7 +75,7 @@ def load_market_universe(selected_markets):
         except Exception:
             tickers.update(["JPM", "V", "MA", "WMT", "PFE", "DIS", "BAC", "KO", "CAT", "IBM", "UNH", "XOM", "CVX", "HD", "PG"])
 
-    # 3. NYSE (New York Stock Exchange)
+    # 3. NYSE
     if "NYSE" in selected_markets or "ALL" in selected_markets:
         nyse_top = [
             "WMT", "JPM", "BAC", "V", "MA", "KO", "PFE", "DIS", "CAT", "IBM", "UNH", "XOM", 
@@ -92,7 +84,7 @@ def load_market_universe(selected_markets):
         ]
         tickers.update(nyse_top)
 
-    # 4. TSX (Toronto Stock Exchange - Canada) -> Suffixed with .TO
+    # 4. TSX (Canada)
     if "TSX (Canada)" in selected_markets or "ALL" in selected_markets:
         tsx_top = [
             "RY.TO", "TD.TO", "SHOP.TO", "ENB.TO", "CNR.TO", "BNS.TO", "BMO.TO", "TRP.TO", 
@@ -101,7 +93,7 @@ def load_market_universe(selected_markets):
         ]
         tickers.update(tsx_top)
 
-    # 5. European Markets (Euronext, DAX, LSE)
+    # 5. Europe
     if "Europe (Euronext/DAX/LSE)" in selected_markets or "ALL" in selected_markets:
         europe_top = [
             "MC.PA", "OR.PA", "TTE.PA", "ASML.AS", "SAP.DE", "SIE.DE", "SHEL.L", "AZN.L", 
@@ -110,7 +102,7 @@ def load_market_universe(selected_markets):
         ]
         tickers.update(europe_top)
 
-    # 6. Singapore (SGX) -> Suffixed with .SI
+    # 6. Singapour (SGX)
     if "Singapour (SGX)" in selected_markets or "ALL" in selected_markets:
         singapore_top = [
             "D05.SI", "O39.SI", "U11.SI", "C6L.SI", "Z74.SI", "A17U.SI", "C38U.SI", 
@@ -118,7 +110,15 @@ def load_market_universe(selected_markets):
         ]
         tickers.update(singapore_top)
 
-    cleaned = [str(t).replace('.', '-').strip().upper() if not (str(t).endswith('.TO') or str(t).endswith('.PA') or str(t).endswith('.DE') or str(t).endswith('.L') or str(t).endswith('.AS') or str(t).endswith('.SI')) else str(t).strip().upper() for t in tickers if t]
+    cleaned = []
+    for t in tickers:
+        if not t:
+            continue
+        st_t = str(t).strip().upper()
+        if any(st_t.endswith(ext) for ext in ['.TO', '.PA', '.DE', '.L', '.AS', '.SI']):
+            cleaned.append(st_t)
+        else:
+            cleaned.append(st_t.replace('.', '-'))
     return sorted(list(set(cleaned)))
 
 # ==============================================================================
@@ -154,9 +154,6 @@ else:
 
 st.sidebar.info(f"📊 **{len(universe)}** action(s) sélectionnée(s) pour l'analyse.")
 
-# ------------------------------------------------------------------------------
-# PROFIL DE STRATÉGIE
-# ------------------------------------------------------------------------------
 st.sidebar.header("🎯 2. Profil de Stratégie")
 
 profile = st.sidebar.radio(
@@ -164,10 +161,9 @@ profile = st.sidebar.radio(
     ["🟢 Conservatrice", "🟡 Équilibrée", "🔴 Agressive", "⚙️ Personnalisée"]
 )
 
-# Définition des règles par profil
 if profile == "🟢 Conservatrice":
     def_min_price, def_max_price = 20.0, 1000.0
-    def_min_mcap = 10.0 # $10Mds+
+    def_min_mcap = 10.0
     def_trend = "🟢 Haussier (EMA Rapide > Lente)"
     def_fast_ema, def_slow_ema = 20, 50
     def_max_days = 30
@@ -184,7 +180,7 @@ if profile == "🟢 Conservatrice":
 
 elif profile == "🟡 Équilibrée":
     def_min_price, def_max_price = 10.0, 2000.0
-    def_min_mcap = 2.0 # $2Mds+
+    def_min_mcap = 2.0
     def_trend = "🟢 Haussier (EMA Rapide > Lente)"
     def_fast_ema, def_slow_ema = 20, 50
     def_max_days = 60
@@ -201,7 +197,7 @@ elif profile == "🟡 Équilibrée":
 
 elif profile == "🔴 Agressive":
     def_min_price, def_max_price = 5.0, 5000.0
-    def_min_mcap = 0.3 # $300M+
+    def_min_mcap = 0.3
     def_trend = "⚪ Toutes les Tendances"
     def_fast_ema, def_slow_ema = 10, 30
     def_max_days = 120
@@ -216,7 +212,7 @@ elif profile == "🔴 Agressive":
     def_min_delta, def_max_delta = 0.30, 0.45
     def_min_prem = 0.15
 
-else: # ⚙️ Personnalisée
+else:
     def_min_price, def_max_price = 5.0, 5000.0
     def_min_mcap = 0.0
     def_trend = "⚪ Toutes les Tendances"
@@ -233,7 +229,9 @@ else: # ⚙️ Personnalisée
     def_min_delta, def_max_delta = 0.05, 0.50
     def_min_prem = 0.10
 
-# Panneau d'Ajustement des Critères (Inclus dans toutes les options)
+trend_options = ["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"]
+trend_idx = trend_options.index(def_trend) if def_trend in trend_options else 0
+
 with st.sidebar.expander("⚙️ Modifier les Critères de Filtrage", expanded=(profile == "⚙️ Personnalisée")):
     st.markdown("### 💰 1. Prix de l'Action & Capitalisation")
     col_p1, col_p2 = st.columns(2)
@@ -243,11 +241,7 @@ with st.sidebar.expander("⚙️ Modifier les Critères de Filtrage", expanded=(
     min_market_cap_b = st.number_input("Market Cap Min (Milliards $)", value=def_min_mcap, step=0.5)
 
     st.markdown("### 📈 2. Choix de Tendance & EMA")
-    trend_filter = st.selectbox(
-        "Filtre de Tendance :",
-        ["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"],
-        index=["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"].index(def_trend)
-    )
+    trend_filter = st.selectbox("Filtre de Tendance :", trend_options, index=trend_idx)
     
     col_e1, col_e2 = st.columns(2)
     fast_ema = col_e1.number_input("EMA Rapide", value=def_fast_ema, step=1)
@@ -280,7 +274,7 @@ with st.sidebar.expander("⚙️ Modifier les Critères de Filtrage", expanded=(
     min_premium = st.number_input("Prime Min ($)", value=def_min_prem, step=0.05)
 
 # ==============================================================================
-# 3. MOTEUR D'ANALYSE TECHNIQUE & CALCULS
+# 3. MOTEUR D'ANALYSE TECHNIQUE
 # ==============================================================================
 def process_stock_analysis(df_hist, fast_p, slow_p):
     if df_hist.empty or len(df_hist) < max(fast_p, slow_p) + 5:
@@ -290,18 +284,18 @@ def process_stock_analysis(df_hist, fast_p, slow_p):
     ema_fast = close.ewm(span=fast_p, adjust=False).mean()
     ema_slow = close.ewm(span=slow_p, adjust=False).mean()
     
-    c_fast = ema_fast.iloc[-1]
-    c_slow = ema_slow.iloc[-1]
-    c_price = close.iloc[-1]
+    c_fast = float(ema_fast.iloc[-1])
+    c_slow = float(ema_slow.iloc[-1])
+    c_price = float(close.iloc[-1])
     
     diff = ema_fast - ema_slow
-    is_bullish = diff.iloc[-1] > 0
+    is_bullish = bool(diff.iloc[-1] > 0)
     
     signs = np.sign(diff)
     sign_changes = signs.ne(signs.shift())
     change_dates = sign_changes[sign_changes].index
     
-    days_cross = (df_hist.index[-1] - change_dates[-1]).days if len(change_dates) > 1 else 999
+    days_cross = int((df_hist.index[-1] - change_dates[-1]).days) if len(change_dates) > 1 else 999
     
     return {
         "price": c_price,
@@ -319,7 +313,6 @@ st.write(f"Nombre de titres prêts à être scannés : **{len(universe)}**")
 
 if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True):
     results = []
-    
     status_box = st.empty()
     progress_bar = st.progress(0)
     
@@ -340,18 +333,25 @@ if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True
             
         for sym in batch:
             try:
-                df_sym = hist_batch[sym].dropna() if len(batch) > 1 else hist_batch.dropna()
+                if len(batch) > 1:
+                    if sym in hist_batch:
+                        df_sym = hist_batch[sym].dropna()
+                    else:
+                        continue
+                else:
+                    df_sym = hist_batch.dropna()
+                    
                 tech = process_stock_analysis(df_sym, fast_ema, slow_ema)
                 if not tech:
                     continue
                 
                 price = tech["price"]
 
-                # 1. Filtre sur le PRIX MIN et MAX
+                # 1. Filtre Prix Min & Max
                 if price < min_price or price > max_price:
                     continue
 
-                # 2. Filtre sur la TENDANCE
+                # 2. Filtre Tendance
                 if trend_filter == "🟢 Haussier (EMA Rapide > Lente)" and not tech["is_bullish"]:
                     continue
                 if trend_filter == "🔴 Baissier (EMA Rapide < Lente)" and tech["is_bullish"]:
@@ -359,50 +359,50 @@ if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True
                 if tech["days_cross"] > max_cross_days:
                     continue
 
-                # 3. Récupération des Fondamentaux & Market Cap
+                # 3. Information Financières
                 yf_t = yf.Ticker(sym)
                 info = yf_t.info or {}
                 
-                market_cap = info.get("marketCap") or 0.0
+                market_cap = float(info.get("marketCap") or 0.0)
                 market_cap_b = market_cap / 1e9
                 
-                # Filtre Market Cap
                 if min_market_cap_b > 0 and market_cap_b < min_market_cap_b:
                     continue
 
-                pe_ratio = info.get("trailingPE") or info.get("forwardPE") or 0.0
-                eps = info.get("trailingEps") or 0.0
-                eps_growth = (info.get("earningsQuarterlyGrowth") or info.get("earningsGrowth") or 0.0) * 100
-                rev_growth = (info.get("revenueGrowth") or 0.0) * 100
-                roe = (info.get("returnOnEquity") or 0.0) * 100
-                debt_eq = (info.get("debtToEquity") or 0.0) / 100.0
-                fcf_m = (info.get("freeCashflow") or 0.0) / 1e6
+                pe_ratio = float(info.get("trailingPE") or info.get("forwardPE") or 0.0)
+                eps = float(info.get("trailingEps") or 0.0)
+                roe = float(info.get("returnOnEquity") or 0.0) * 100.0
+                debt_eq = float(info.get("debtToEquity") or 0.0) / 100.0
+                fcf_m = float(info.get("freeCashflow") or 0.0) / 1e6
 
-                # Filtres Fondamentaux
-                if max_pe > 0 and pe_ratio > max_pe: continue
-                if roe < min_roe: continue
-                if max_debt_eq > 0 and debt_eq > max_debt_eq: continue
-                if fcf_m < min_fcf: continue
+                if max_pe > 0 and pe_ratio > max_pe:
+                    continue
+                if roe < min_roe:
+                    continue
+                if max_debt_eq > 0 and debt_eq > max_debt_eq:
+                    continue
+                if fcf_m < min_fcf:
+                    continue
 
-                # 4. Calculs des Options (PUT Cibles)
-                target_delta = (min_delta + max_delta) / 2
+                # 4. Estimation des Options
+                target_delta = (min_delta + max_delta) / 2.0
                 dte = int((min_dte + max_dte) / 2)
                 
                 strike = round(price * (1.0 - target_delta * 0.45), 1)
                 estimated_premium = round(price * target_delta * 0.09, 2)
                 
-                if estimated_premium < min_premium: continue
+                if estimated_premium < min_premium:
+                    continue
                 
-                iv = round(np.clip(25 + (price % 15) + (target_delta * 20), min_iv, 95), 1)
+                iv = round(float(np.clip(25 + (price % 15) + (target_delta * 20), min_iv, 95)), 1)
                 open_interest = int(1000 + (price * 12))
                 option_volume = int(open_interest * 0.25)
 
-                if iv < min_iv or open_interest < min_oi or option_volume < min_vol: continue
+                if iv < min_iv or open_interest < min_oi or option_volume < min_vol:
+                    continue
 
-                # Rendement Annualisé (ROC %)
                 roc_ann = round((estimated_premium / strike) * (365 / dte) * 100, 1)
 
-                # Calcul du Score Global (0-100)
                 score = 65
                 if tech["is_bullish"]: score += 10
                 if tech["days_cross"] <= 15: score += 10
@@ -411,13 +411,13 @@ if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True
                 if market_cap_b > 10: score += 5
                 score = int(np.clip(score, 50, 99))
 
-                # Formatage de l'affichage du Market Cap
                 if market_cap_b >= 1.0:
                     cap_str = f"${market_cap_b:.1f}B"
                 else:
                     cap_str = f"${market_cap_b * 1000:.0f}M"
 
-                results.append({
+                # Construction sécurisée du résultat
+                res_item = {
                     "ticker": sym,
                     "price": round(price, 2),
                     "strike": strike,
@@ -439,7 +439,8 @@ if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True
                     "vol": option_volume,
                     "ema_fast": round(tech["ema_fast"], 2),
                     "ema_slow": round(tech["ema_slow"], 2)
-                })
+                }
+                results.append(res_item)
 
             except Exception:
                 continue
@@ -455,7 +456,6 @@ if st.button("🚀 Lancer le Scan Pro", type="primary", use_container_width=True
         df_res = df_res.sort_values(by="score", ascending=False)
         st.success(f"🔥 **Opportunités Qualifiées ({len(df_res)})**")
 
-        # Affichage exact selon le style des cartes de votre capture
         for _, item in df_res.iterrows():
             st.markdown(f"""
             <div class="opportunity-card">
