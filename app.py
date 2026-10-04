@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import nest_asyncio
-from ib_insync import IB, Stock, ScannerSubscription, util
+import requests
+from ib_insync import IB, Stock, util
 
 # Activation du support asynchrone pour Streamlit
 nest_asyncio.apply()
@@ -28,16 +29,16 @@ ib_port = st.sidebar.number_input(
 ib_client_id = st.sidebar.number_input("Client ID", value=1, step=1)
 
 # ==============================================================================
-# 2. SÉLECTION DES MARCHÉS VIA SCANNER IBKR (DIRECT DEPUIS SERVEURS IBKR)
+# 2. SÉLECTION DU MARCHÉ
 # ==============================================================================
-st.sidebar.header("🌐 1. Sélection du Marché IBKR")
+st.sidebar.header("🌐 1. Sélection du Marché")
 
 market_choice = st.sidebar.selectbox(
-    "Marché/Indice à scanner via IBKR :",
+    "Marché à scanner :",
     [
-        "NASDAQ (US.NASDAQ)",
-        "NYSE (US.NYSE)",
-        "TSX Canada (CANADA)",
+        "NASDAQ 100 / S&P 500 (USA)",
+        "NYSE (USA)",
+        "TSX (Canada)",
         "Europe (Euronext / DAX / LSE)",
         "Singapour (SGX)",
         "Irlande (ISE)",
@@ -45,15 +46,35 @@ market_choice = st.sidebar.selectbox(
     ]
 )
 
-# Correspondance avec les codes de localisation officiels d'IBKR
-IBKR_LOCATION_CODES = {
-    "NASDAQ (US.NASDAQ)": "STK.NASDAQ",
-    "NYSE (US.NYSE)": "STK.NYSE",
-    "TSX Canada (CANADA)": "STK.TSE",
-    "Europe (Euronext / DAX / LSE)": "STK.EU",
-    "Singapour (SGX)": "STK.SGX",
-    "Irlande (ISE)": "STK.ISE"
-}
+@st.cache_data(ttl=3600)
+def load_full_index_universe(market):
+    if market == "NASDAQ 100 / S&P 500 (USA)":
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=5)
+            df = pd.read_html(r.text)[0]
+            return [s.replace('.', '-') for s in df['Symbol'].tolist()]
+        except Exception:
+            return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "AMD", "NFLX",
+                    "COST", "TMUS", "CSCO", "AMAT", "PEP", "INTU", "QCOM", "TXN", "AMGN", "HON"]
+
+    elif market == "NYSE (USA)":
+        return ["BRK-B", "JPM", "WMT", "UNH", "V", "XOM", "MA", "PG", "JNJ", "HD",
+                "ORCL", "ABBV", "BAC", "CVX", "MRK", "TMO", "LIN", "WFC", "ACN", "MCD"]
+
+    elif market == "TSX (Canada)":
+        return ["RY", "TD", "SHOP", "ENB", "CNR", "BNS", "BMO", "TRP", "BAM", "SU"]
+
+    elif market == "Europe (Euronext / DAX / LSE)":
+        return ["MC", "OR", "TTE", "ASML", "SAP", "SIE", "SHEL", "AZN", "AIR", "RMS"]
+
+    elif market == "Singapour (SGX)":
+        return ["D05", "O39", "U11", "Z74", "C38N", "A17U", "C6L", "C31", "S68", "BN4"]
+
+    elif market == "Irlande (ISE)":
+        return ["CRG", "RY4C", "BIR", "A3M", "KSP", "EIR", "KRZ", "GL9", "GVR", "IL0A"]
+
+    return []
 
 if market_choice == "✏️ Liste Personnalisée de Tickers":
     custom_input = st.sidebar.text_area(
@@ -61,196 +82,238 @@ if market_choice == "✏️ Liste Personnalisée de Tickers":
         value="AAPL, TSLA, NVDA, AMD, BABA, SPY, QQQ, PLTR, SOFI, MARA, COIN, WMT, INTC, BAC, CVX",
         height=100
     )
-    custom_tickers = [t.strip().upper() for t in custom_input.replace("\n", ",").split(",") if t.strip()]
+    full_universe = [t.strip().upper() for t in custom_input.replace("\n", ",").split(",") if t.strip()]
 else:
-    max_scan_rows = st.sidebar.slider("Nombre de titres à extraire de l'indice :", min_value=10, max_value=500, value=100, step=10)
+    full_universe = load_full_index_universe(market_choice)
+
+max_scan_count = st.sidebar.slider("Nombre d'actions à analyser :", min_value=10, max_value=len(full_universe), value=min(100, len(full_universe)))
+universe = full_universe[:max_scan_count]
+
+st.sidebar.info(f"📊 **{len(universe)}** action(s) sélectionnée(s) sur **{len(full_universe)}** disponibles.")
 
 # ==============================================================================
-# 3. FILTRES TECHNIQUE & STRATÉGIE (100% MODIFIABLES)
+# 3. CRITÈRES TECHNIQUES ET FONDAMENTAUX MODIFIABLES
 # ==============================================================================
-st.sidebar.header("🎯 2. Profil de Stratégie")
-
-profile = st.sidebar.radio(
-    "Choix du Profil Préétabli :",
-    ["🟢 Conservatrice", "🟡 Équilibrée", "🔴 Agressive", "⚙️ Personnalisée"]
-)
-
-if profile == "🟢 Conservatrice":
-    def_min_price, def_max_price = 10.0, 3000.0
-    def_trend = "⚪ Toutes les Tendances"
-    def_fast_ema, def_slow_ema = 20, 50
-    def_min_dte, def_max_dte = 14, 45
-    def_min_delta, def_max_delta = 0.10, 0.30
-
-elif profile == "🟡 Équilibrée":
-    def_min_price, def_max_price = 5.0, 5000.0
-    def_trend = "⚪ Toutes les Tendances"
-    def_fast_ema, def_slow_ema = 20, 50
-    def_min_dte, def_max_dte = 7, 45
-    def_min_delta, def_max_delta = 0.15, 0.35
-
-elif profile == "🔴 Agressive":
-    def_min_price, def_max_price = 2.0, 10000.0
-    def_trend = "⚪ Toutes les Tendances"
-    def_fast_ema, def_slow_ema = 10, 30
-    def_min_dte, def_max_dte = 7, 30
-    def_min_delta, def_max_delta = 0.20, 0.45
-
-else:
-    def_min_price, def_max_price = 1.0, 10000.0
-    def_trend = "⚪ Toutes les Tendances"
-    def_fast_ema, def_slow_ema = 20, 50
-    def_min_dte, def_max_dte = 1, 90
-    def_min_delta, def_max_delta = 0.05, 0.50
-
-trend_options = ["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"]
-trend_idx = trend_options.index(def_trend)
-
-st.sidebar.header("⚙️ Ajustement Manuel des Critères")
+st.sidebar.header("🎯 2. Filtres Techniques")
 
 col_p1, col_p2 = st.sidebar.columns(2)
-min_price = col_p1.number_input("Prix Min ($)", value=def_min_price, step=1.0)
-max_price = col_p2.number_input("Prix Max ($)", value=def_max_price, step=10.0)
+min_price = col_p1.number_input("Prix Min ($)", value=2.0, step=1.0)
+max_price = col_p2.number_input("Prix Max ($)", value=500.0, step=10.0)
 
-trend_filter = st.sidebar.selectbox("Filtre de Tendance :", trend_options, index=trend_idx)
+trend_filter = st.sidebar.selectbox("Filtre de Tendance :", ["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"])
 
 col_e1, col_e2 = st.sidebar.columns(2)
-fast_ema = col_e1.number_input("EMA Rapide", value=def_fast_ema, step=1)
-slow_ema = col_e2.number_input("EMA Lente", value=def_slow_ema, step=1)
+fast_ema = col_e1.number_input("EMA Rapide", value=20, step=1)
+slow_ema = col_e2.number_input("EMA Lente", value=50, step=1)
+
+crossover_days = st.sidebar.slider("Fenêtre max du Croisement EMA (Jours) :", min_value=1, max_value=30, value=10)
+
+min_volume = st.sidebar.number_input("Volume Moyen Min (Actions/jour)", value=500000, step=100000)
+
+st.sidebar.header("📊 3. Filtres Fondamentaux")
+
+min_mcap = st.sidebar.number_input("Market Cap Min (Millions $)", value=1000.0, step=500.0, help="Exemple : 1000 M$= 1 Milliard$")
+max_pe = st.sidebar.number_input("P/E Max", value=40.0, step=1.0)
+min_roe = st.sidebar.number_input("ROE Min (%)", value=5.0, step=1.0)
+max_debt_equity = st.sidebar.number_input("Debt / Equity Max", value=2.5, step=0.1)
+
+st.sidebar.header("⚙️ 4. Paramètres Options")
 
 col_d1, col_d2 = st.sidebar.columns(2)
-min_dte = col_d1.number_input("DTE Min (Jours)", value=def_min_dte, step=1)
-max_dte = col_d2.number_input("DTE Max (Jours)", value=def_max_dte, step=1)
+min_dte = col_d1.number_input("DTE Min (Jours)", value=14, step=1)
+max_dte = col_d2.number_input("DTE Max (Jours)", value=45, step=1)
 
 col_dl1, col_dl2 = st.sidebar.columns(2)
-min_delta = col_dl1.number_input("Delta Min", value=def_min_delta, step=0.05)
-max_delta = col_dl2.number_input("Delta Max", value=def_max_delta, step=0.05)
+min_delta = col_dl1.number_input("Delta Min", value=0.15, step=0.05)
+max_delta = col_dl2.number_input("Delta Max", value=0.35, step=0.05)
 
 # ==============================================================================
-# 4. REQUÊTES EN DIRECT VERS IBKR
+# 4. FONCTION PARSING ET REQUÊTES IBKR
 # ==============================================================================
+def parse_fundamental_ratios(ratio_str):
+    """ Extrait les ratios P/E, ROE, Debt/Equity et Market Cap depuis le flux IBKR """
+    ratios = {'PE': None, 'ROE': None, 'DE': None, 'MCAP': None}
+    if not ratio_str:
+        return ratios
+    
+    try:
+        items = ratio_str.split(';')
+        for item in items:
+            if '=' in item:
+                k, v = item.split('=')
+                try:
+                    val = float(v)
+                    if k in ['NPEPRCL', 'PEEXCLXCL', 'APEXCLXCL']:
+                        ratios['PE'] = val
+                    elif k in ['AEROP', 'TTMROEPCT', 'GROEM']:
+                        ratios['ROE'] = val
+                    elif k in ['MASCAP', 'TOTALD2EQ', 'TTMRECTOT']:
+                        ratios['DE'] = val
+                    elif k in ['MKTCAP', 'CGMKTCAP', 'MCAP']:
+                        ratios['MCAP'] = val
+                except ValueError:
+                    continue
+    except Exception:
+        pass
+    return ratios
+
+def format_mcap(mcap_val):
+    """ Formate la capitalisation boursière pour un affichage lisible """
+    if mcap_val is None:
+        return "N/A"
+    if mcap_val >= 1000:
+        return f"${mcap_val / 1000:.2f} B"
+    return f"${mcap_val:.1f} M"
+
 def connect_ibkr(host, port, client_id):
     ib = IB()
     try:
         ib.connect(host, port, clientId=client_id, timeout=6)
+        ib.reqMarketDataType(3)  # Données différées
         return ib
     except Exception as e:
-        st.error(f"❌ Impossible de se connecter à TWS sur {host}:{port}.\n"
-                 f"Vérifiez que TWS est ouvert et que l'API ActiveX/Socket est activée.\n Erreur : `{e}`")
+        st.error(f"❌ Erreur de connexion à TWS : `{e}`")
         return None
 
-def fetch_universe_from_ibkr(ib, location_code, num_rows):
-    sub = ScannerSubscription(
-        numberOfRows=num_rows,
-        instrument='STK',
-        locationCode=location_code,
-        scanCode='MOST_ACTIVE'
-    )
-    scan_data = ib.reqScannerData(sub)
-    return [item.contractDetails.contract.symbol for item in scan_data]
-
-def analyze_ticker_ibkr(ib, symbol, f_ema, s_ema):
+def analyze_ticker_ibkr(ib, symbol, market, f_ema, s_ema, max_cross_days):
     try:
-        contract = Stock(symbol, 'SMART', 'USD')
+        sym = symbol.strip().upper()
+        if market == "TSX (Canada)":
+            contract = Stock(sym.replace(".TO", ""), 'TSE', 'CAD')
+        elif market == "Singapour (SGX)":
+            contract = Stock(sym, 'SGX', 'SGD')
+        elif market in ["Europe (Euronext / DAX / LSE)", "Irlande (ISE)"]:
+            contract = Stock(sym, 'SMART', 'EUR')
+        else:
+            contract = Stock(sym, 'SMART', 'USD')
+
         ib.qualifyContracts(contract)
-        
-        ticker_data = ib.reqMktData(contract, '', False, False)
-        ib.sleep(0.3)
-        
-        price = ticker_data.marketPrice()
-        if not price or price != price or price <= 0:
-            price = ticker_data.close
-            
-        if not price or price <= 0:
-            return None
-            
+
+        # 1. Données Historiques de Prix
         bars = ib.reqHistoricalData(
-            contract, endDateTime='', durationStr='60 D',
+            contract, endDateTime='', durationStr='100 D',
             barSizeSetting='1 day', whatToShow='TRADES', useRTH=True
         )
-        
-        if not bars or len(bars) < max(f_ema, s_ema):
+
+        if not bars or len(bars) < max(f_ema, s_ema) + max_cross_days:
             return None
-            
-        df_hist = util.df(bars)
-        ema_f = df_hist['close'].ewm(span=f_ema, adjust=False).mean().iloc[-1]
-        ema_s = df_hist['close'].ewm(span=s_ema, adjust=False).mean().iloc[-1]
-        is_bullish = bool(ema_f > ema_s)
+
+        df = util.df(bars)
+        price = float(df['close'].iloc[-1])
+        avg_volume = float(df['volume'].tail(20).mean())
+
+        # 2. Calcul des EMA et détection du croisement dans la fenêtre de jours
+        df['ema_fast'] = df['close'].ewm(span=f_ema, adjust=False).mean()
+        df['ema_slow'] = df['close'].ewm(span=s_ema, adjust=False).mean()
+        df['bullish'] = df['ema_fast'] > df['ema_slow']
+
+        is_currently_bullish = bool(df['bullish'].iloc[-1])
+
+        # Détection du croisement dans les N derniers jours
+        recent_bars = df.tail(max_cross_days + 1)
+        cross_occurred = False
+        for i in range(1, len(recent_bars)):
+            prev_state = recent_bars['bullish'].iloc[i-1]
+            curr_state = recent_bars['bullish'].iloc[i]
+            if prev_state != curr_state:
+                cross_occurred = True
+                break
+
+        # 3. Récupération des Ratios Fondamentaux via TWS Tick 258
+        mkt_data = ib.reqMktData(contract, '258', False, False)
+        ib.sleep(0.2)
+        ratios = parse_fundamental_ratios(mkt_data.fundamentalRatios)
 
         return {
-            "price": float(price),
-            "is_bullish": is_bullish
+            "price": price,
+            "volume": avg_volume,
+            "is_bullish": is_currently_bullish,
+            "cross_occurred": cross_occurred,
+            "pe": ratios['PE'],
+            "roe": ratios['ROE'],
+            "debt_equity": ratios['DE'],
+            "mcap": ratios['MCAP']
         }
     except Exception:
         return None
 
 # ==============================================================================
-# 5. SCANNER ET RENDU
+# 5. EXÉCUTION ET AFFICHAGE
 # ==============================================================================
 st.subheader(f"🔍 Scan du Marché : {market_choice}")
 
 if st.button("🚀 Lancer le Scan Pro via IBKR Data", type="primary", use_container_width=True):
     ib = connect_ibkr(ib_host, int(ib_port), int(ib_client_id))
-    
+
     if ib and ib.isConnected():
         st.success("✅ Connecté à Interactive Brokers TWS !")
-        
+
         status_box = st.empty()
-        
-        if market_choice == "✏️ Liste Personnalisée de Tickers":
-            universe = custom_tickers
-        else:
-            status_box.info(f"⏳ Téléchargement dynamique des composants de l'indice {market_choice} depuis IBKR...")
-            location = IBKR_LOCATION_CODES[market_choice]
-            universe = fetch_universe_from_ibkr(ib, location, max_scan_rows)
-            
-        st.write(f"Titres récupérés en direct d'IBKR : **{len(universe)}**")
-        
         progress_bar = st.progress(0)
         results = []
         total = len(universe)
-        
+
         for idx, sym in enumerate(universe):
-            status_box.info(f"⏳ Analyse temps réel IBKR ({idx+1}/{total}) : **{sym}**...")
+            status_box.info(f"⏳ Analyse IBKR ({idx+1}/{total}) : **{sym}**...")
             progress_bar.progress((idx + 1) / total)
-            
-            tech = analyze_ticker_ibkr(ib, sym, fast_ema, slow_ema)
-            if not tech:
+
+            data = analyze_ticker_ibkr(ib, sym, market_choice, fast_ema, slow_ema, crossover_days)
+            if not data:
                 continue
-                
-            price = tech["price"]
-            
+
+            price = data["price"]
+
+            # --- FILTRES TECHNIQUES & VOLUME ---
             if price < min_price or price > max_price:
                 continue
 
-            if trend_filter == "🟢 Haussier (EMA Rapide > Lente)" and not tech["is_bullish"]:
-                continue
-            if trend_filter == "🔴 Baissier (EMA Rapide < Lente)" and tech["is_bullish"]:
+            if data["volume"] < min_volume:
                 continue
 
+            if not data["cross_occurred"]:
+                continue
+
+            if trend_filter == "🟢 Haussier (EMA Rapide > Lente)" and not data["is_bullish"]:
+                continue
+            if trend_filter == "🔴 Baissier (EMA Rapide < Lente)" and data["is_bullish"]:
+                continue
+
+            # --- FILTRES FONDAMENTAUX ---
+            if data["mcap"] is not None and data["mcap"] < min_mcap:
+                continue
+            if data["pe"] is not None and data["pe"] > max_pe:
+                continue
+            if data["roe"] is not None and data["roe"] < min_roe:
+                continue
+            if data["debt_equity"] is not None and data["debt_equity"] > max_debt_equity:
+                continue
+
+            # --- CALCUL OPTIONS ---
             target_delta = (min_delta + max_delta) / 2.0
             dte = int((min_dte + max_dte) / 2)
             strike = round(price * (1.0 - target_delta * 0.35), 1)
             estimated_premium = round(price * target_delta * 0.08, 2)
-            cap_str = f"${(price * 8.5):.1f}B"
-            
-            score = 82
-            if tech["is_bullish"]: score += 10
-            else: score += 5
-            if price > 30: score += 7
+
+            score = 80
+            if data["is_bullish"]: score += 10
+            if data["volume"] > 1000000: score += 5
             score = min(score, 99)
 
             results.append({
                 "ticker": sym,
                 "price": round(price, 2),
+                "volume": int(data["volume"]),
+                "mcap": format_mcap(data['mcap']),
+                "pe": f"{data['pe']:.1f}" if data["pe"] else "N/A",
+                "roe": f"{data['roe']:.1f}%" if data["roe"] else "N/A",
+                "de": f"{data['debt_equity']:.2f}" if data["debt_equity"] else "N/A",
                 "strike": strike,
                 "dte": dte,
                 "delta": round(-target_delta, 2),
                 "premium": estimated_premium,
                 "score": score,
-                "signal_str": "Haussier" if tech["is_bullish"] else "Baissier",
-                "signal_icon": "🟢" if tech["is_bullish"] else "🔴",
-                "cap_str": cap_str
+                "signal_str": "Haussier" if data["is_bullish"] else "Baissier",
+                "signal_icon": "🟢" if data["is_bullish"] else "🔴"
             })
 
         ib.disconnect()
@@ -258,7 +321,7 @@ if st.button("🚀 Lancer le Scan Pro via IBKR Data", type="primary", use_contai
         progress_bar.empty()
 
         if not results:
-            st.warning("⚠️ Aucun titre ne correspond à tous vos critères.")
+            st.warning("⚠️️ Aucun titre ne correspond à l'ensemble de vos critères techniques et fondamentaux.")
         else:
             results = sorted(results, key=lambda x: x['score'], reverse=True)
             st.subheader(f"🔥 Opportunités Qualifiées IBKR ({len(results)})")
@@ -275,9 +338,12 @@ if st.button("🚀 Lancer le Scan Pro via IBKR Data", type="primary", use_contai
                         </span>
                     </div>
                     <div style="margin-top: 6px; font-size: 14px; color: #e2e8f0;">
-                        <b>Tendance:</b> {item['signal_icon']} {item['signal_str']} | <b>Cap:</b> {item['cap_str']}
+                        <b>Tendance:</b> {item['signal_icon']} {item['signal_str']} | <b>Vol Moyen:</b> {item['volume']:,}
                     </div>
                     <div style="margin-top: 4px; font-size: 13px; color: #cbd5e1;">
+                        <b>Market Cap:</b> {item['mcap']} | <b>P/E:</b> {item['pe']} | <b>ROE:</b> {item['roe']} | <b>Debt/Equity:</b> {item['de']}
+                    </div>
+                    <div style="margin-top: 6px; font-size: 13px; color: #38bdf8;">
                         Prime estimée: <b style="color: #22c55e;">${item['premium']}</b> | DTE: <b>{item['dte']}j</b> | Delta: <b>{item['delta']}</b>
                     </div>
                 </div>
