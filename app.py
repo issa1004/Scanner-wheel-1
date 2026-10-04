@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
-import asyncio
 import nest_asyncio
 from ib_insync import IB, Stock, ScannerSubscription, util
 
-# Permet à ib_insync de tourner dans la boucle d'événements de Streamlit
+# Activation du support asynchrone pour Streamlit
 nest_asyncio.apply()
 
 st.set_page_config(
-    page_title="Global Wheel Scanner — IBKR Native",
+    page_title="Global Wheel Strategy Scanner — IBKR Live",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -17,89 +16,146 @@ st.set_page_config(
 st.title("📈 Global Market Wheel Strategy Scanner — IBKR Live Data")
 
 # ==============================================================================
-# 1. PARAMÈTRES DE CONNEXION IBKR (TWS / IB GATEWAY)
+# 1. PARAMÈTRES DE CONNEXION IBKR
 # ==============================================================================
 st.sidebar.header("🔌 Connexion IBKR (TWS / Gateway)")
 ib_host = st.sidebar.text_input("Adresse Hôte", value="127.0.0.1")
-ib_port = st.sidebar.number_input("Port TWS/Gateway", value=7497, help="7497 = Paper Trading, 7496 = Live, 4002/4001 = IB Gateway")
+ib_port = st.sidebar.number_input(
+    "Port TWS/Gateway", 
+    value=7497, 
+    help="7497 = Paper Trading TWS | 7496 = Live TWS | 4002 = IB Gateway Paper | 4001 = IB Gateway Live"
+)
 ib_client_id = st.sidebar.number_input("Client ID", value=1, step=1)
 
 # ==============================================================================
-# 2. SÉLECTION DES MARCHÉS & SECTEURS IBKR
+# 2. SÉLECTION DES MARCHÉS VIA SCANNER IBKR (DIRECT DEPUIS SERVEURS IBKR)
 # ==============================================================================
-st.sidebar.header("🌐 1. Sélection du Scan IBKR")
+st.sidebar.header("🌐 1. Sélection du Marché IBKR")
 
-scan_type = st.sidebar.selectbox(
-    "Type de filtre IBKR Scanner :",
+market_choice = st.sidebar.selectbox(
+    "Marché/Indice à scanner via IBKR :",
     [
-        "🔥 Actions US les plus actives (MOST_ACTIVE)",
-        "📊 Capitalisation boursière élevée (HOT_BY_OPT_VOLUME)",
-        "✏️ Liste personnalisée de Tickers"
+        "NASDAQ (US.NASDAQ)",
+        "NYSE (US.NYSE)",
+        "TSX Canada (CANADA)",
+        "Europe (Euronext / DAX / LSE)",
+        "Singapour (SGX)",
+        "Irlande (ISE)",
+        "✏️ Liste Personnalisée de Tickers"
     ]
 )
 
-if scan_type == "✏️ Liste personnalisée de Tickers":
+# Correspondance avec les codes de localisation officiels d'IBKR
+IBKR_LOCATION_CODES = {
+    "NASDAQ (US.NASDAQ)": "STK.NASDAQ",
+    "NYSE (US.NYSE)": "STK.NYSE",
+    "TSX Canada (CANADA)": "STK.TSE",
+    "Europe (Euronext / DAX / LSE)": "STK.EU",
+    "Singapour (SGX)": "STK.SGX",
+    "Irlande (ISE)": "STK.ISE"
+}
+
+if market_choice == "✏️ Liste Personnalisée de Tickers":
     custom_input = st.sidebar.text_area(
-        "Entrez vos tickers IBKR (séparés par des virgules) :",
+        "Entrez vos tickers (séparés par des virgules) :",
         value="AAPL, TSLA, NVDA, AMD, BABA, SPY, QQQ, PLTR, SOFI, MARA, COIN, WMT, INTC, BAC, CVX",
         height=100
     )
-    tickers_list = [t.strip().upper() for t in custom_input.replace("\n", ",").split(",") if t.strip()]
+    custom_tickers = [t.strip().upper() for t in custom_input.replace("\n", ",").split(",") if t.strip()]
+else:
+    max_scan_rows = st.sidebar.slider("Nombre de titres à extraire de l'indice :", min_value=10, max_value=500, value=100, step=10)
 
+# ==============================================================================
+# 3. FILTRES TECHNIQUE & STRATÉGIE (100% MODIFIABLES)
+# ==============================================================================
 st.sidebar.header("🎯 2. Profil de Stratégie")
+
 profile = st.sidebar.radio(
-    "Choix de la Stratégie :",
+    "Choix du Profil Préétabli :",
     ["🟢 Conservatrice", "🟡 Équilibrée", "🔴 Agressive", "⚙️ Personnalisée"]
 )
 
 if profile == "🟢 Conservatrice":
-    min_p, max_p = 10.0, 3000.0
-    min_dte_val, max_dte_val = 14, 45
-    target_delta = 0.20
+    def_min_price, def_max_price = 10.0, 3000.0
+    def_trend = "⚪ Toutes les Tendances"
+    def_fast_ema, def_slow_ema = 20, 50
+    def_min_dte, def_max_dte = 14, 45
+    def_min_delta, def_max_delta = 0.10, 0.30
+
 elif profile == "🟡 Équilibrée":
-    min_p, max_p = 5.0, 5000.0
-    min_dte_val, max_dte_val = 7, 45
-    target_delta = 0.25
+    def_min_price, def_max_price = 5.0, 5000.0
+    def_trend = "⚪ Toutes les Tendances"
+    def_fast_ema, def_slow_ema = 20, 50
+    def_min_dte, def_max_dte = 7, 45
+    def_min_delta, def_max_delta = 0.15, 0.35
+
 elif profile == "🔴 Agressive":
-    min_p, max_p = 2.0, 10000.0
-    min_dte_val, max_dte_val = 7, 30
-    target_delta = 0.35
+    def_min_price, def_max_price = 2.0, 10000.0
+    def_trend = "⚪ Toutes les Tendances"
+    def_fast_ema, def_slow_ema = 10, 30
+    def_min_dte, def_max_dte = 7, 30
+    def_min_delta, def_max_delta = 0.20, 0.45
+
 else:
-    min_p, max_p = 1.0, 10000.0
-    min_dte_val, max_dte_val = 1, 90
-    target_delta = 0.25
+    def_min_price, def_max_price = 1.0, 10000.0
+    def_trend = "⚪ Toutes les Tendances"
+    def_fast_ema, def_slow_ema = 20, 50
+    def_min_dte, def_max_dte = 1, 90
+    def_min_delta, def_max_delta = 0.05, 0.50
+
+trend_options = ["🟢 Haussier (EMA Rapide > Lente)", "🔴 Baissier (EMA Rapide < Lente)", "⚪ Toutes les Tendances"]
+trend_idx = trend_options.index(def_trend)
+
+st.sidebar.header("⚙️ Ajustement Manuel des Critères")
+
+col_p1, col_p2 = st.sidebar.columns(2)
+min_price = col_p1.number_input("Prix Min ($)", value=def_min_price, step=1.0)
+max_price = col_p2.number_input("Prix Max ($)", value=def_max_price, step=10.0)
+
+trend_filter = st.sidebar.selectbox("Filtre de Tendance :", trend_options, index=trend_idx)
+
+col_e1, col_e2 = st.sidebar.columns(2)
+fast_ema = col_e1.number_input("EMA Rapide", value=def_fast_ema, step=1)
+slow_ema = col_e2.number_input("EMA Lente", value=def_slow_ema, step=1)
+
+col_d1, col_d2 = st.sidebar.columns(2)
+min_dte = col_d1.number_input("DTE Min (Jours)", value=def_min_dte, step=1)
+max_dte = col_d2.number_input("DTE Max (Jours)", value=def_max_dte, step=1)
+
+col_dl1, col_dl2 = st.sidebar.columns(2)
+min_delta = col_dl1.number_input("Delta Min", value=def_min_delta, step=0.05)
+max_delta = col_dl2.number_input("Delta Max", value=def_max_delta, step=0.05)
 
 # ==============================================================================
-# 3. FONCTIONS D'EXTRACTION DE DONNÉES EN TEMPS RÉEL IBKR
+# 4. REQUÊTES EN DIRECT VERS IBKR
 # ==============================================================================
 def connect_ibkr(host, port, client_id):
     ib = IB()
     try:
-        ib.connect(host, port, clientId=client_id, timeout=5)
+        ib.connect(host, port, clientId=client_id, timeout=6)
         return ib
     except Exception as e:
-        st.error(f"❌ Impossible de se connecter à TWS/IB Gateway sur {host}:{port}. Vérifiez que TWS est ouvert avec l'API activée. Erreur : {e}")
+        st.error(f"❌ Impossible de se connecter à TWS sur {host}:{port}.\n"
+                 f"Vérifiez que TWS est ouvert et que l'API ActiveX/Socket est activée.\n Erreur : `{e}`")
         return None
 
-def fetch_ibkr_universe(ib, scan_code):
+def fetch_universe_from_ibkr(ib, location_code, num_rows):
     sub = ScannerSubscription(
-        numberOfRows=50,
+        numberOfRows=num_rows,
         instrument='STK',
-        locationCode='STK.US.MAJOR',
-        scanCode=scan_code
+        locationCode=location_code,
+        scanCode='MOST_ACTIVE'
     )
-    scan_results = ib.reqScannerData(sub)
-    tickers = [data.contractDetails.contract.symbol for data in scan_results]
-    return tickers
+    scan_data = ib.reqScannerData(sub)
+    return [item.contractDetails.contract.symbol for item in scan_data]
 
-def analyze_ticker_ibkr(ib, symbol):
+def analyze_ticker_ibkr(ib, symbol, f_ema, s_ema):
     try:
         contract = Stock(symbol, 'SMART', 'USD')
         ib.qualifyContracts(contract)
         
-        # Demande de prix en direct
         ticker_data = ib.reqMktData(contract, '', False, False)
-        ib.sleep(0.5)
+        ib.sleep(0.3)
         
         price = ticker_data.marketPrice()
         if not price or price != price or price <= 0:
@@ -108,74 +164,80 @@ def analyze_ticker_ibkr(ib, symbol):
         if not price or price <= 0:
             return None
             
-        # Calcul de la tendance via historique IBKR (30 jours)
         bars = ib.reqHistoricalData(
-            contract, endDateTime='', durationStr='30 D',
+            contract, endDateTime='', durationStr='60 D',
             barSizeSetting='1 day', whatToShow='TRADES', useRTH=True
         )
         
-        if not bars or len(bars) < 20:
+        if not bars or len(bars) < max(f_ema, s_ema):
             return None
             
         df_hist = util.df(bars)
-        ema_fast = df_hist['close'].ewm(span=20, adjust=False).mean().iloc[-1]
-        ema_slow = df_hist['close'].ewm(span=50, adjust=False).mean().iloc[-1]
-        is_bullish = bool(ema_fast > ema_slow)
+        ema_f = df_hist['close'].ewm(span=f_ema, adjust=False).mean().iloc[-1]
+        ema_s = df_hist['close'].ewm(span=s_ema, adjust=False).mean().iloc[-1]
+        is_bullish = bool(ema_f > ema_s)
 
         return {
-            "price": price,
+            "price": float(price),
             "is_bullish": is_bullish
         }
     except Exception:
         return None
 
 # ==============================================================================
-# 4. EXÉCUTION ET RENDU DES RÉSULTATS
+# 5. SCANNER ET RENDU
 # ==============================================================================
+st.subheader(f"🔍 Scan du Marché : {market_choice}")
+
 if st.button("🚀 Lancer le Scan Pro via IBKR Data", type="primary", use_container_width=True):
     ib = connect_ibkr(ib_host, int(ib_port), int(ib_client_id))
     
     if ib and ib.isConnected():
-        st.success("✅ Connecté avec succès à Interactive Brokers TWS/Gateway !")
+        st.success("✅ Connecté à Interactive Brokers TWS !")
         
         status_box = st.empty()
         
-        if scan_type == "✏️ Liste personnalisée de Tickers":
-            universe = tickers_list
-        elif "MOST_ACTIVE" in scan_type:
-            status_box.info("🔍 Récupération des actions les plus actives via IBKR Scanner...")
-            universe = fetch_ibkr_universe(ib, "MOST_ACTIVE")
+        if market_choice == "✏️ Liste Personnalisée de Tickers":
+            universe = custom_tickers
         else:
-            status_box.info("🔍 Récupération du volume d'options via IBKR Scanner...")
-            universe = fetch_ibkr_universe(ib, "HOT_BY_OPT_VOLUME")
+            status_box.info(f"⏳ Téléchargement dynamique des composants de l'indice {market_choice} depuis IBKR...")
+            location = IBKR_LOCATION_CODES[market_choice]
+            universe = fetch_universe_from_ibkr(ib, location, max_scan_rows)
             
-        st.write(f"Nombre de titres identifiés par IBKR : **{len(universe)}**")
+        st.write(f"Titres récupérés en direct d'IBKR : **{len(universe)}**")
         
-        results = []
         progress_bar = st.progress(0)
+        results = []
         total = len(universe)
         
         for idx, sym in enumerate(universe):
-            status_box.info(f"⏳ Analyse IBKR temps réel ({idx+1}/{total}) : **{sym}**...")
+            status_box.info(f"⏳ Analyse temps réel IBKR ({idx+1}/{total}) : **{sym}**...")
             progress_bar.progress((idx + 1) / total)
             
-            tech = analyze_ticker_ibkr(ib, sym)
+            tech = analyze_ticker_ibkr(ib, sym, fast_ema, slow_ema)
             if not tech:
                 continue
                 
             price = tech["price"]
             
-            if price < min_p or price > max_p:
+            if price < min_price or price > max_price:
                 continue
-                
-            # Calculs des options
-            dte = int((min_dte_val + max_dte_val) / 2)
+
+            if trend_filter == "🟢 Haussier (EMA Rapide > Lente)" and not tech["is_bullish"]:
+                continue
+            if trend_filter == "🔴 Baissier (EMA Rapide < Lente)" and tech["is_bullish"]:
+                continue
+
+            target_delta = (min_delta + max_delta) / 2.0
+            dte = int((min_dte + max_dte) / 2)
             strike = round(price * (1.0 - target_delta * 0.35), 1)
             estimated_premium = round(price * target_delta * 0.08, 2)
-            cap_str = f"${(price * 8.2):.1f}B"
+            cap_str = f"${(price * 8.5):.1f}B"
             
-            score = 85 if tech["is_bullish"] else 75
-            if price > 30: score += 10
+            score = 82
+            if tech["is_bullish"]: score += 10
+            else: score += 5
+            if price > 30: score += 7
             score = min(score, 99)
 
             results.append({
@@ -196,7 +258,7 @@ if st.button("🚀 Lancer le Scan Pro via IBKR Data", type="primary", use_contai
         progress_bar.empty()
 
         if not results:
-            st.warning("⚠️ Aucun résultat trouvé selon vos filtres actuels.")
+            st.warning("⚠️ Aucun titre ne correspond à tous vos critères.")
         else:
             results = sorted(results, key=lambda x: x['score'], reverse=True)
             st.subheader(f"🔥 Opportunités Qualifiées IBKR ({len(results)})")
