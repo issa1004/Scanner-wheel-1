@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
 import math
 import time
 
@@ -13,6 +12,69 @@ st.set_page_config(
 )
 
 st.title("📈 Global Market Wheel Strategy Scanner (Version Illimitée)")
+
+# ==============================================================================
+# UNIVERS COMPLETS INTÉGRÉS EN DUR
+# ==============================================================================
+SP500_FULL = [
+    "MMM","AOS","ABT","ABBV","ACN","ADBE","AMD","AAP","AES","AFL","A","APD","ABNB","AKAM","ALB","ARE","ALGN","ALLE",
+    "LNT","ALL","GOOGL","GOOG","MO","AMZN","AMCR","AEE","AAL","AEP","AXP","AIG","AMT","AWK","AMP","AME","AMGN","APH",
+    "ADI","ANSS","AON","APA","AAPL","AMAT","APTV","ACGL","ADM","ANET","AJG","AIZ","T","ATO","ADSK","ADP","AZO","AVB",
+    "AVY","AXON","BKR","BALL","BAC","BK","BBWI","BAX","BDX","BRK-B","BBY","BIO","TECH","BIIB","BLK","BX","BKNG","BWA",
+    "BSX","BMY","AVGO","BR","BRO","BF-B","BLDR","BG","CDNS","CZR","CPT","CPB","COF","CAH","KMX","CCL","CARR","CTLT",
+    "CAT","CBOE","CBRE","CDW","CE","COR","CNC","CNP","CF","CHRW","CRL","SCHW","CHTR","CVX","CMG","CB","CHD","CI",
+    "CINF","CTAS","CSCO","C","CFG","CLX","CME","CMS","KO","CTSH","CL","CMCSA","CAG","COP","ED","STZ","CEG","COO",
+    "CPRT","GLW","CPAY","CTVA","CSGP","COST","CTRA","CCI","CSX","CMI","CVS","DHR","DRI","DVA","DAY","DE","DAL","XRAY",
+    "DVN","DXCM","FANG","DLR","DFS","DG","DLTR","D","DPZ","DOV","DOW","DHI","DTE","DUK","DD","EMN","ETN","EBAY",
+    "ECL","EIX","EW","EA","ELV","EMR","ENPH","ETR","EOG","EPAM","EQT","EFX","EQR","EQIX","ERIE","ESS","EL","ETSY",
+    "EG","EVRG","ES","EXC","EXPE","EXPD","EXR","XOM","FFIV","FSLR","FAST","FRT","FDX","FIS","FITB","FE","FI","FLT",
+    "FMC","F","FTNT","FTV","FOXA","FOX","BEN","FCX","GRMN","IT","GE","GEHC","GEV","GEN","GNRC","GD","GIS","GM",
+    "GPC","GILD","GPN","GL","GDDY","GS","HAL","HIG","HAS","HCA","DOC","HSIC","HSY","HES","HPE","HLT","HOLX","HD",
+    "HON","HRL","HST","HWM","HPQ","HUBB","HUM","HBAN","HII","IBM","IEX","IDXX","ITW","INCY","IR","PODD","INTC","ICE",
+    "IFF","IP","IPG","INTU","ISRG","IVZ","INVH","IQV","IRM","JBHT","JBL","JKHY","J","JNJ","JCI","JPM","JNPR","K",
+    "KVUE","KMB","KIM","KMI","KLAC","KHC","KR","LHX","LH","LRCX","LW","LVS","LDOS","LEN","LIN","LYV","LKQ","LMT",
+    "L","LOW","LULU","LYB","MTB","MRO","MPC","MKTX","MAR","MMC","MLM","MAS","MA","MTCH","MKC","MCD","MCK","MDT","MRK",
+    "META","MET","MTD","MGM","MCHP","MU","MSFT","MAA","MRNA","MOH","TAP","MDLZ","MPWR","MNST","MCO","MS","MOS","MSI",
+    "MSCI","NDAQ","NTAP","NFLX","NEM","NWSA","NWS","NEE","NKE","NI","NDSN","NSC","NTRS","NOC","NCLH","NRG","NUE",
+    "NVDA","NVR","NXPI","ORLY","OXY","ODFL","OMC","ON","OKE","ORCL","OTIS","PCAR","PKG","PLTR","PANW","PH","PAYX",
+    "PAYC","PYPL","PNR","PEP","PFE","PCG","PM","PSX","PNC","POOL","PPG","PPL","PFG","PG","PGR","PLD","PRU","PEG",
+    "PTC","PSA","PHM","QRVO","PWR","QCOM","DGX","RL","RJF","RTX","O","REG","REGN","RF","RSG","RMD","RVTY","ROK",
+    "ROL","ROP","ROST","RCL","SPGI","CRM","SBAC","SLB","STX","SRE","NOW","SHW","SPG","SWKS","SJM","SNA","SOLV",
+    "SO","LUV","SWK","SBUX","STT","STLD","STE","SYK","SMCI","SNPS","SYF","SYY","TMUS","TROW","TTWO","TPR","TRGP",
+    "TGT","TEL","TDY","TFX","TER","TSLA","TXN","TXT","TMO","TJX","TSCO","TT","TDG","TRV","TRMB","TFC","TYL","TSN",
+    "USB","UBER","UDR","ULTA","UNP","UAL","UPS","URI","UNH","UHS","VLO","VTR","VRSN","VRSK","VZ","VRTX","VBG","VMC",
+    "WRB","WAB","WMT","DIS","WBD","WM","WAT","WEC","WFC","WELL","WST","WDC","WY","WHR","WMB","WTW","GWW","WYNN",
+    "XEL","XYL","YUM","ZBRA","ZBH","ZTS"
+]
+
+NASDAQ_FULL = [
+    "AAPL","MSFT","NVDA","AMZN","GOOGL","GOOG","META","TSLA","AVGO","AMD","NFLX","COST","TMUS","CSCO","AMAT","PEP",
+    "INTU","QCOM","TXN","AMGN","HON","SBUX","INTC","PYPL","ADI","ADP","KLAC","GILD","MDLZ","REGN","LRCX",
+    "PANW","SNPS","CDNS","ASML","CRWD","MELI","MAR","CTAS","ORLY","ABNB","WDAY","MNST","ROST","DXCM","FTNT",
+    "KDP","PAYX","MCHP","AEP","IDXX","PDD","AZN","BKR","EA","EXC","LULU","XEL","GEHC","BIIB","WBD",
+    "DLTR","ODFL","PCAR","ROKU","ZM","DDOG","TEAM","ZS","ENPH","ILMN","MDB","WBA","FAST","VRSK","SIRI",
+    "PLTR","SOFI","MARA","COIN","HOOD","RIOT","SNAP","NIO","LCID","BABA","JD","BIDU","NTES","TSM","ARM"
+]
+
+TSX_FULL = [f"{t}.TO" for t in [
+    "RY","TD","SHOP","ENB","CNR","BNS","BMO","TRP","BAM","SU","CP","CNQ","TRI","MFC","AEM","ATD","WCN","BCE",
+    "RCI-B","POW","IMO","FM","TECK-B","DOL","QSR","GIB-A","NTR","GWO","PPL","SLF","IFC","WPM","CVE","PKEY",
+    "TOU","EMA","FTS","CAR-UN","H","OTEX","K","GIL","WCP","ARX","CCL-B","CCO","NPI","L","TIH","EFN","ALA","X",
+    "KEY","MEG","BTE","CPG","FEI","FFH","STN","IVN","EDV","LUN","HBM","PAAS","ELD","CMMC","IMG","EQX","SSRM"
+]]
+
+NYSE_FULL = [
+    "BRK-B","JPM","WMT","UNH","V","XOM","MA","PG","JNJ","HD","ORCL","ABBV","BAC","CVX","MRK","TMO","LIN",
+    "WFC","ACN","MCD","DIS","ABT","GE","PM","CAT","IBM","VZ","RTX","UBER","LOW","SPGI","UNP","PFE","COP",
+    "HON","BA","T","BMY","GS","MS","AXP","BLK","SCHW","C","DE","LMT","EOG","SLB","FI","PLD","CI","SYK","TJX",
+    "MMC","AMT","CB","MO","BKNG","NKE","ISRG","EL","VLO","PNC","USB","BDX","MCK","CL","TGT","FCX","FDX"
+]
+
+EUROPE_FULL = [
+    "MC.PA","OR.PA","TTE.PA","ASML.AS","SAP.DE","SIE.DE","AIR.PA","RMS.PA","SAN.PA","BNP.PA","SU.PA","DG.PA",
+    "EL.PA","GLE.PA","CS.PA","CAP.PA","KER.PA","RI.PA","VIE.PA","EN.PA","BAYN.DE","ALV.DE","BMW.DE","MBG.DE",
+    "DTE.DE","BAS.DE","MUV2.DE","DHL.DE","VOW3.DE","ADS.DE","INGA.AS","PRX.AS","REN.AS","HEIA.AS","ABN.AS"
+]
 
 # ==============================================================================
 # 1. PROFILS DE STRATÉGIE
@@ -95,60 +157,29 @@ if "custom_lists" not in st.session_state:
 st.sidebar.header("🌐 1. Sélection du Marché")
 
 market_options = [
-    "🏛️ S&P 500 (USA - ~500 Actions)",
-    "💻 NASDAQ 100 & Extended (USA - ~150 Actions)",
-    "🍁 TSX Composite (Canada - ~100 Actions)",
-    "🏢 NYSE Large Caps (USA - ~100 Actions)",
-    "🌍 Europe Large Caps (Euronext/DAX - ~80 Actions)",
+    f"🏛️ S&P 500 (USA - {len(SP500_FULL)} Actions)",
+    f"💻 NASDAQ (USA - {len(NASDAQ_FULL)} Actions)",
+    f"🍁 TSX Composite (Canada - {len(TSX_FULL)} Actions)",
+    f"🏢 NYSE Large Caps (USA - {len(NYSE_FULL)} Actions)",
+    f"🌍 Europe Large Caps (Euronext/DAX - {len(EUROPE_FULL)} Actions)",
     "📂 Utiliser une de mes 10 Listes Personnalisées"
 ]
 
 market_choice = st.sidebar.selectbox("Choisissez le marché :", market_options)
 
-@st.cache_data(ttl=86400)
-def load_market_universe(market_type):
-    if "S&P 500" in market_type:
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=10)
-            df = pd.read_html(r.text)[0]
-            return [s.replace('.', '-') for s in df['Symbol'].tolist()]
-        except Exception:
-            return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "AMD", "NFLX", "COST", "TMUS", "CSCO", "AMAT", "PEP"]
-
-    elif "NASDAQ" in market_type:
-        return ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "AMD", "NFLX", "COST", "TMUS", "CSCO", "AMAT", "PEP",
-                "INTU", "QCOM", "TXN", "AMGN", "HON", "SBUX", "INTC", "PYPL", "ADI", "ADP", "KLAC", "GILD", "MDLZ", "REGN", "LRCX",
-                "PANW", "SNPS", "CDNS", "ASML", "CRWD", "MELI", "MAR", "CTAS", "ORLY", "ABNB", "WDAY", "MNST", "ROST", "DXCM", "FTNT",
-                "KDP", "PAYX", "MCHP", "AEP", "IDXX", "PDD", "AZN", "BKR", "EA", "EXC", "LULU", "XEL", "GEHC", "BIIB", "WBD",
-                "DLTR", "ODFL", "PCAR", "ROKU", "ZM", "DDOG", "TEAM", "ZS", "ENPH", "ILMN", "MDB", "WBA", "FAST", "VRSK", "SIRI"]
-
-    elif "TSX" in market_type:
-        tsx_tickers = [
-            "RY", "TD", "SHOP", "ENB", "CNR", "BNS", "BMO", "TRP", "BAM", "SU", "CP", "CNQ", "TRI", "MFC", "AEM", "ATD",
-            "WCN", "BCE", "RCI-B", "POW", "IMO", "FM", "TECK-B", "DOL", "QSR", "GIB-A", "NTR", "GWO", "PPL", "SLF", "IFC",
-            "WPM", "CVE", "PKEY", "TOU", "EMA", "FTS", "CAR-UN", "H", "OTEX", "K", "GIL", "WCP", "ARX", "AGICO", "CCL-B",
-            "CCO", "NPI", "L", "TIH", "EFN", "ALA", "X", "KEY", "MEG", "BTE", "CPG", "FEI", "FFH", "STN", "IVN", "EDV"
-        ]
-        return [f"{t}.TO" for t in tsx_tickers]
-
-    elif "NYSE" in market_type:
-        return ["BRK-B", "JPM", "WMT", "UNH", "V", "XOM", "MA", "PG", "JNJ", "HD", "ORCL", "ABBV", "BAC", "CVX", "MRK", "TMO",
-                "LIN", "WFC", "ACN", "MCD", "DIS", "ABT", "GE", "PM", "CAT", "IBM", "VZ", "RTX", "UBER", "LOW", "SPGI", "UNP",
-                "PFE", "COP", "HON", "BA", "T", "BMY", "GS", "MS", "AXP", "BLK", "SCHW", "C", "AMX", "DE", "LMT", "EOG", "PXD",
-                "SLB", "FI", "PLD", "CI", "SYK", "MDLZ", "TJX", "MMC", "GILD", "AMT", "CB", "MO", "BKNG", "NKE", "ADI", "ISRG"]
-
-    elif "Europe" in market_type:
-        return ["MC.PA", "OR.PA", "TTE.PA", "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "RMS.PA", "SAN.PA", "BNP.PA", "SU.PA", "DG.PA",
-                "EL.PA", "GLE.PA", "CS.PA", "CAP.PA", "KER.PA", "RI.PA", "VIE.PA", "EN.PA", "BAYN.DE", "ALV.DE", "BMW.DE", "MBG.DE",
-                "DTE.DE", "BAS.DE", "MUV2.DE", "DHL.DE", "VOW3.DE", "ADS.DE", "INGA.AS", "PRX.AS", "REN.AS", "HEIA.AS", "ABN.AS"]
-
-    return []
-
-if market_choice == "📂 Utiliser une de mes 10 Listes Personnalisées":
+if "S&P 500" in market_choice:
+    full_universe = SP500_FULL
+elif "NASDAQ" in market_choice:
+    full_universe = NASDAQ_FULL
+elif "TSX" in market_choice:
+    full_universe = TSX_FULL
+elif "NYSE" in market_choice:
+    full_universe = NYSE_FULL
+elif "Europe" in market_choice:
+    full_universe = EUROPE_FULL
+else:
     selected_list_name = st.sidebar.selectbox("Choisissez votre liste :", list(st.session_state.custom_lists.keys()))
     
-    # Zone d'édition dynamique
     edited_text = st.sidebar.text_area(
         f"Contenu de {selected_list_name} (séparés par des virgules) :",
         value=st.session_state.custom_lists[selected_list_name],
@@ -156,10 +187,7 @@ if market_choice == "📂 Utiliser une de mes 10 Listes Personnalisées":
     )
     st.session_state.custom_lists[selected_list_name] = edited_text
     full_universe = [t.strip().upper() for t in edited_text.replace("\n", ",").split(",") if t.strip()]
-else:
-    full_universe = load_market_universe(market_choice)
 
-# Editeur rapide pour les 10 listes dans un sous-menu déroulant
 with st.sidebar.expander("✏️ Éditer mes 10 Listes Personnalisées"):
     for key in st.session_state.custom_lists.keys():
         st.session_state.custom_lists[key] = st.text_area(key, st.session_state.custom_lists[key], height=65)
