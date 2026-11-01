@@ -3,3 +3,5 @@ pandas
 yfinance
 lxml
 html5lib
+numpy
+ib_insync
