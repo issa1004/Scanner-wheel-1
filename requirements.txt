@@ -5,3 +5,6 @@ lxml
 html5lib
 numpy
 ib_insync
+requests
+beautifulsoup4
+openpyxl
