@@ -8,5 +8,4 @@ ib_insync
 requests
 beautifulsoup4
 openpyxl
-streamlit cache clear
-streamlit run app.py
+
