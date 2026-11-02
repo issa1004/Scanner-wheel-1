@@ -1,192 +1,146 @@
-]
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import math
+import time
+import json
+import urllib.request
 
-ETF_CAD = [
-    "XIC.TO", "XIU.TO", "ZEB.TO",
-    "VFV.TO", "ZSP.TO", "XEI.TO",
-    "VDY.TO", "HYLD.TO", "HDIV.TO",
-    "HMAX.TO", "ZWB.TO"
-]
-
-
-# ============================================================
-# 4. PROFILS DE STRATEGIE
-# ============================================================
-
-st.sidebar.header("Profil de Stratégie")
-
-profile = st.sidebar.radio(
-    "Choisissez votre profil :",
-    [
-        "Conservatrice",
-        "Modérée",
-        "Agressive",
-        "Personnalisée"
-    ]
+st.set_page_config(
+    page_title="Global Wheel Strategy Scanner",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-if profile == "Conservatrice":
+st.title("📈 Global Market Wheel Strategy Scanner")
 
-    def_p_min, def_p_max = 15.0, 300.0
-    def_f_ema, def_s_ema = 20, 50
-    def_cross_d = 10
-    def_min_v = 1000000
-    def_min_mc = 10000.0
-    def_max_pe = 25.0
-    def_min_roe = 10.0
-    def_max_de = 1.5
-    def_dte_min, def_dte_max = 30, 45
-    def_delta_min, def_delta_max = 0.10, 0.20
+# Initialisation des 10 listes personnalisées dans la session Streamlit
+if "custom_lists" not in st.session_state:
+    st.session_state.custom_lists = {
+        f"Liste Personnalisée {i}": "SHOP.TO, CSU.TO, RY.TO, TD.TO, AAPL, MSFT" for i in range(1, 11)
+    }
 
-elif profile == "Modérée":
+# ==============================================================================
+# 1. VERSION US (DYNAMIQUE VIA NASDAQ TRADER) - NE PAS MODIFIER
+# ==============================================================================
+@st.cache_data(ttl=86400)
+def charger_marche_us_dynamique():
+    secteurs_us = {
+        "Technologie - US (Dynamique)": [],
+        "Santé - US (Dynamique)": [],
+        "Finance - US (Dynamique)": [],
+        "Énergie - US (Dynamique)": [],
+        "Industriels - US (Dynamique)": [],
+        "Tous les US (Global)": []
+    }
+    mots_cles = {
+        "Technologie": ["TECH", "SOFTWARE", "SEMICONDUCTOR", "COMPUTER", "INTERNET", "CYBER", "CLOUD", "DATA", "CHIP", "ELECTRONIC", "SYSTEMS"],
+        "Santé": ["PHARMACEUTICAL", "BIOTECHNOLOGY", "MEDICAL", "HEALTH", "THERAPEUTICS", "LABORATORIES"],
+        "Finance": ["BANK", "FINANCIAL", "CAPITAL", "INVESTMENT", "INSURANCE", "BANCORP", "TRUST"],
+        "Énergie": ["ENERGY", "OIL", "GAS", "PETROLEUM", "POWER", "RESOURCES", "COAL"],
+        "Industriels": ["INDUSTRIES", "MANUFACTURING", "LOGISTICS", "AEROSPACE", "DEFENSE", "MACHINERY"]
+    }
+    try:
+        for url in [
+            "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+            "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+        ]:
+            with urllib.request.urlopen(url) as response:
+                for line in response.read().decode('utf-8').split('\n'):
+                    parts = line.split('|')
+                    if len(parts) > 1 and parts[0] not in ["Symbol", "ACT Symbol", "File Creation Time", ""]:
+                        sym = parts[0].strip()
+                        name = parts[1].strip().upper()
+                        if "$" not in sym and "." not in sym:
+                            secteurs_us["Tous les US (Global)"].append(sym)
+                            for sec, mots in mots_cles.items():
+                                if any(m in name for m in mots):
+                                    secteurs_us[f"{sec} - US (Dynamique)"].append(sym)
+                                    break
+    except Exception as e:
+        st.error(f"Erreur chargement US : {e}")
 
-    def_p_min, def_p_max = 10.0, 400.0
-    def_f_ema, def_s_ema = 20, 50
-    def_cross_d = 10
-    def_min_v = 500000
-    def_min_mc = 2000.0
-    def_max_pe = 40.0
-    def_min_roe = 5.0
-    def_max_de = 2.5
-    def_dte_min, def_dte_max = 20, 45
-    def_delta_min, def_delta_max = 0.15, 0.30
+    for k in secteurs_us:
+        secteurs_us[k] = list(set(secteurs_us[k]))
+    return secteurs_us
 
-elif profile == "Agressive":
+# ==============================================================================
+# 2. CANADA GLOBAL - TSX + TSX VENTURE
+# ==============================================================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def charger_marche_canada_global():
+    """Charge les symboles TSX et TSX Venture depuis symbol-list.io.
+    Lève une erreur détaillée si le format ne correspond pas."""
 
-    def_p_min, def_p_max = 5.0, 500.0
-    def_f_ema, def_s_ema = 9, 21
-    def_cross_d = 15
-    def_min_v = 300000
-    def_min_mc = 500.0
-    def_max_pe = 75.0
-    def_min_roe = 0.0
-    def_max_de = 4.0
-    def_dte_min, def_dte_max = 14, 30
-    def_delta_min, def_delta_max = 0.25, 0.40
-
-else:
-
-    def_p_min, def_p_max = 1.0, 1000.0
-    def_f_ema, def_s_ema = 5, 20
-    def_cross_d = 10
-    def_min_v = 500000
-    def_min_mc = 1000.0
-    def_max_pe = 30.0
-    def_min_roe = 5.0
-    def_max_de = 2.0
-    def_dte_min, def_dte_max = 7, 60
-    def_delta_min, def_delta_max = 0.10, 0.40
-
-
-# ============================================================
-# 5. SELECTION DU MARCHE
-# ============================================================
-
-st.sidebar.header("Sélection du Marché")
-
-market_type = st.sidebar.selectbox(
-    "Choisissez le marché :",
-    [
-        "Secteurs US (Dynamiques en direct)",
-        "Canada Global (TSX + TSX Venture)",
-        "Listes personnalisées (10 listes modifiables)",
-        "ETF US",
-        "ETF Canada"
-    ]
-)
-
-if "Secteurs US" in market_type:
-
-    with st.spinner("Téléchargement des marchés US..."):
-
-        us_map = charger_marche_us_dynamique()
-
-    selected_sec = st.sidebar.selectbox(
-        "Secteur US :",
-        list(us_map.keys())
+    url = "https://symbol-list.io/data/daily-symbol-list.json"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+            "Accept": "application/json"
+        }
     )
 
-    universe = us_map[selected_sec]
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            donnees = json.loads(response.read().decode("utf-8", errors="replace"))
+    except Exception as e:
+        raise RuntimeError(f"Téléchargement impossible depuis {url} : {e}")
 
-elif "Canada Global" in market_type:
+    # Accepte une liste directe ou un objet qui contient la liste
+    if isinstance(donnees, list):
+        lignes = donnees
+    elif isinstance(donnees, dict):
+        lignes = next(
+            (donnees[k] for k in ("data", "symbols", "items", "results")
+             if isinstance(donnees.get(k), list)),
+            []
+        )
+    else:
+        lignes = []
+    lignes = [ligne for ligne in lignes if isinstance(ligne, dict)]
 
-    with st.spinner("Téléchargement des titres canadiens..."):
+    if not lignes:
+        cles = list(donnees.keys())[:15] if isinstance(donnees, dict) else "-"
+        raise RuntimeError(
+            f"Format inattendu (type : {type(donnees).__name__}, clés : {cles})"
+        )
 
-        try:
+    tsx, venture = set(), set()
+    for ligne in lignes:
+        ex = str(ligne.get("exchange") or ligne.get("exchange_short_name") or "").upper()
+        if "VENT" in ex or "TSXV" in ex or "TSX-V" in ex:
+            cible, suffixe = venture, ".V"
+        elif "TSX" in ex:
+            cible, suffixe = tsx, ".TO"
+        else:
+            continue
 
-            canada_map = charger_marche_canada_global()
+        yahoo = str(ligne.get("yahoo_symbol") or "").strip().upper()
+        if not yahoo:
+            brut = str(ligne.get("symbol") or "").strip().upper()
+            if not brut:
+                continue
+            yahoo = brut.replace(".", "-") + suffixe
 
-            selected_canada = st.sidebar.selectbox(
-                "Univers canadien :",
-                list(canada_map.keys())
-            )
+        if yahoo in {"", "NAN", "NONE"} or " " in yahoo:
+            continue
+        cible.add(yahoo)
 
-            universe = canada_map[selected_canada]
+    if not tsx and not venture:
+        cles_ex = list(lignes[0].keys())
+        raise RuntimeError(
+            f"Aucun titre TSX/TSXV reconnu. Clés du 1er élément : {cles_ex}"
+        )
 
-            st.sidebar.caption(
-                f"TSX : {len(canada_map['TSX - Bourse de Toronto']):,} titres"
-                f" | TSX Venture : {len(canada_map['TSX Venture']):,} titres"
-            )
+    return {
+        "Tous les Canada (Global)": sorted(tsx | venture),
+        "TSX - Bourse de Toronto": sorted(tsx),
+        "TSX Venture": sorted(venture),
+    }
 
-        except Exception as e:
-
-            st.error(f"Erreur de chargement du Canada : {e}")
-
-            universe = []
-
-elif market_type == "ETF US":
-
-    universe = ETF_US
-
-elif market_type == "ETF Canada":
-
-    universe = ETF_CAD
-
-else:
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Gestion des 10 listes personnalisées")
-
-    selected_list_name = st.sidebar.selectbox(
-        "Choisir la liste à modifier :",
-        list(st.session_state.custom_lists.keys())
-    )
-
-    current_val = st.session_state.custom_lists[selected_list_name]
-
-    updated_val = st.sidebar.text_area(
-        "Modifier les tickers :",
-        current_val,
-        height=120
-    )
-
-    st.session_state.custom_lists[selected_list_name] = updated_val
-
-    universe = [
-        s.strip().upper()
-        for s in updated_val.replace("\n", ",").split(",")
-        if s.strip()
-    ]
-
-st.sidebar.markdown("---")
-
-scan_all = st.sidebar.checkbox(
-    "SCANNER TOUTE LA LISTE SANS LIMITE",
-    value=True
-)
-
-active_universe = universe if scan_all else universe[:50]
-
-st.sidebar.success(
-    f"Titres chargés : {len(active_universe):,}"
-)
-
-
-# ============================================================
-# 6. FILTRES
-# ============================================================
-
-st.sidebar.header("Filtres Techniques et Fondamentaux")
-
-min_price = st.sidebar.number_input(
-    "Prix minimum ($)",
-    value=def_p_min,
+# ==============================================================================
+# 3. ETF
+# ==================================================================
